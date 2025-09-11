@@ -8,38 +8,39 @@ The cheapest log is the one you never ingest. Use this checklist to **kill noise
 ### ✅ Ingestion Strategies
 
 - [ ] **Run a 30-Day Usage Query**  
-  Identify your top data types by GB using the `Usage` table. Know where the noise is before you act.
+        Identify your top data types by GB using the `Usage` table. Know where the noise is before you act.
+        Usage | where TimeGenerated > ago(30d) | summarize GB = round(sum(Quantity) / 1024.0, 2) by DataType | top 10 by GB desc
 
 - [ ] **Tune Windows Event Logs**  
-  Collect only **Warning, Error, Critical**.  
-  Exclude noisy Event IDs (e.g., 10016, 7036).
+        Collect only **Warning, Error, Critical**.  
+        Exclude noisy Event IDs (e.g., 10016, 7036).
 
 - [ ] **Filter Linux Syslog**  
-  Collect only essential facilities: `authpriv, daemon, kern`.  
-  Set severity ≥ Warning.  
-  Exclude health/readiness probes.
+        Collect only essential facilities: `authpriv, daemon, kern`.  
+        Set severity ≥ Warning.  
+        Exclude health/readiness probes.
 
 - [ ] **Optimize Performance Counters**  
-  Collect only counters tied to **active alerts or dashboards**.  
-  Increase sampling interval (e.g., 60s instead of 10s).
+        Collect only counters tied to **active alerts or dashboards**.  
+        Increase sampling interval (e.g., 60s instead of 10s).
 
 - [ ] **Prune Diagnostic Settings**  
-  Do **not** tick every category.  
-  Send compliance-only logs to **Storage/Event Hub** instead of Log Analytics.  
-  Scope NSG flow logs only to critical subnets and time-box their usage.
+        Do **not** tick every category.  
+        Send compliance-only logs to **Storage/Event Hub** instead of Log Analytics.  
+        Scope NSG flow logs only to critical subnets and time-box their usage.
 
 - [ ] **Control Application Insights**  
-  Enable **adaptive sampling**.  
-  Exclude **errors/critical events** from sampling to avoid losing rare failures.
+        Enable **adaptive sampling**.  
+        Exclude **errors/critical events** from sampling to avoid losing rare failures.
 
 - [ ] **Set Guardrails**  
-  Configure **workspace daily caps**.  
-  Set **budget alerts** for ingestion volume and cost.  
-  Use spike detection queries to catch sudden ingestion surges.
+        Configure **workspace daily caps**.  
+        Set **budget alerts** for ingestion volume and cost.  
+        Use spike detection queries to catch sudden ingestion surges.
 
 - [ ] **Adopt Tag-Based Ingestion Modes (Move 37 Strategy)**  
-  Default = **essential logs only**.  
-  Flip tag to **verbose** when troubleshooting.  
-  Saves money 99% of the time while keeping flexibility when needed.
+        Default = **essential logs only**.  
+        Flip tag to **verbose** when troubleshooting.  
+        Saves money 99% of the time while keeping flexibility when needed.
 
 
