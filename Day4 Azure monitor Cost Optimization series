@@ -1,0 +1,128 @@
+Checklist:
+1. Understand Transformations
+2. Filter Out Noisy Rows
+3. Trim Payload Size (Reduce Width)
+4. Split Hot vs Cold Data
+5. Implement Tag-Based Mode
+6. Standardize & Reuse
+
+
+
+
+
+1.	Understanding Transformations
+    •	Defined in Data Collection Rules (DCRs).
+    •	Run before ingestion → before billing.
+    •	Use KQL (where, project, etc.) to filter and reshape data.
+
+ 
+2.	Filter Out Noisy Rows
+    •	Drop Kubernetes probes (readiness, liveness, healthz).
+    •	Exclude noisy Windows Event IDs (10016, 7036).
+    •	Keep Syslog at Warning+ only.
+
+
+     Transformations that we could apply here:
+ Problem: By default VMInsights collects a lot of counters (disk, CPU, memory, network, queue length, etc.).
+Strategy: Only keep counters you use for dashboards/alerts. 
+Transformation Example: (Droping unused objects like Paging File, Thread)
+        source
+        | where ObjectName in ('LogicalDisk','Processor','Memory')
+        | where not(CounterName in ('Processor Queue Length'))
+        | project TimeGenerated, Computer, ObjectName, CounterName, InstanceName, CounterValue, _ResourceId
+
+Windows Event Logs:
+        source
+        | where EventLevelName in ('Warning','Error','Critical')
+        | where not(EventID in (10016, 7036))   // noisy DCOM + service state change
+        | project TimeGenerated, Computer, EventID, Provider, Channel, Task, RenderedDescription, _ResourceId
+
+What about Kubernetes:  (Drop Health probes)
+        source
+        | where not(LogEntry has_any('readiness','liveness','healthz'))
+        | project TimeGenerated, ContainerName, PodName, Namespace, LogEntry, _ResourceId
+
+3.	Trim Payload Size (Reduce Width)
+    •	Every extra field = more bytes = more cost.
+    •	Use project() to keep only the columns you query/alert on.
+    •	Example: Usage table → keep TimeGenerated, DataType, Quantity, QuantityUnit, Solution, _ResourceId.
+    •	Show before/after in Logs: fat record vs slim record.
+
+Diagnostic Settings can be configured directly on the Portal
+    These are platform logs from Azure Resources.
+Examples:
+        Usage
+        | getschema
+        
+        Usage
+        | project TimeGenerated, DataType, Quantity, QuantityUnit, Solution
+        | take 1
+
+
+
+4.	Split Hot vs Cold Data
+    Subset (critical logs) → LAW for rich queries.
+    Full feed → Event Hub → Blob for cheap archive.
+    One dataFlow for LAW with transforms, one for EH full stream.
+    
+    What about a strategy where some subset goes to LAW and most data goes to Blob?
+    
+    Create Two Dataflows per stream (example for Windows Events):
+
+Full feed -> Event Hub ( no transformation)
+          {
+            "streams": [ "Microsoft-Event" ],
+            "destinations": [ "ehDest" ],
+            "transformKql": "source",
+            "outputStream": "Microsoft-Event"
+          }
+          
+          Lean Subset -> LAW  ( with Transformation)
+          {
+            "streams": [ "Microsoft-Event" ],
+            "destinations": [ "laDest" ],
+            "transformKql": "source \
+          | where EventLevelName in ('Warning','Error','Critical') \
+          | where not(EventID in (10016, 7036)) \
+          | project TimeGenerated, Computer, EventID, Provider, Channel, Task, RenderedDescription, _ResourceId",
+            "outputStream": "Microsoft-Event"
+          }
+          
+          
+          
+          Example for Perf:
+          
+          Full -> Event hub:
+          {
+            "streams": [ "Microsoft-Perf" ],
+            "destinations": [ "ehDest" ],
+            "transformKql": "source",
+            "outputStream": "Microsoft-Perf"
+          }
+          
+          Lean Subset -> LAW:
+          {
+            "streams": [ "Microsoft-Perf" ],
+            "destinations": [ "laDest" ],
+            "transformKql": "source \
+          | where ObjectName in ('LogicalDisk','Processor','Memory') \
+          | where not(CounterName in ('Processor Queue Length')) \
+          | project TimeGenerated, Computer, ObjectName, CounterName, InstanceName, CounterValue, _ResourceId",
+            "outputStream": "Microsoft-Perf"
+          }
+
+
+
+5.	Implement Tag-Based Mode
+        Default tag: LogProfile=essential → minimal fields, lean ingestion.
+        Switch tag to verbose for troubleshooting → send more data.
+        Saves money 99% of the time, but flexibility when you need it.
+        
+        Without Policy → You assign DCRs manually to resources.
+        With Policy + Tags → You let the tag drive the assignment automatically.
+        So flipping LogProfile=essential → LogProfile=verbose on a VM triggers Policy → Policy creates the right DCR Association → pipeline changes.
+
+6. Standardize and Reuse
+      Document approved transformKql snippets (Perf, Event, Syslog, Containers).
+      Apply consistently across all DCRs.
+
